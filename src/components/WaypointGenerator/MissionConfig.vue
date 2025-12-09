@@ -24,11 +24,18 @@
         </a-col>
         <a-col :span="12">
           <a-form-item label="失控动作">
-            <a-select :value="modelValue.exitOnRCLost" @update:value="val => updateConfig('exitOnRCLost', val)">
-              <a-select-option value="goHome">自动返航</a-select-option>
+            <a-select :value="modelValue.executeRCLostAction" @update:value="val => updateConfig('executeRCLostAction', val)">
+              <a-select-option value="goBack">自动返航</a-select-option>
               <a-select-option value="hover">原地悬停</a-select-option>
-              <a-select-option value="land">自动降落</a-select-option>
-              <a-select-option value="goContinue">继续执行</a-select-option>
+              <a-select-option value="landing">自动降落</a-select-option>
+            </a-select>
+          </a-form-item>
+        </a-col>
+        <a-col :span="12">
+          <a-form-item label="航线失联行为">
+            <a-select :value="modelValue.exitOnRCLost" @update:value="val => updateConfig('exitOnRCLost', val)">
+              <a-select-option value="executeLostAction">执行失联动作</a-select-option>
+              <a-select-option value="goContinue">继续执行航线</a-select-option>
             </a-select>
           </a-form-item>
         </a-col>
@@ -275,7 +282,7 @@
       <!-- Smart Identification Alert -->
       <div class="bg-gray-50 rounded-lg border border-purple-500 p-0 overflow-hidden mt-4">
         <div
-          class="bg-gradient-to-r from-[#2c2035] to-dark-800 p-3 border-b border-gray-200 flex justify-between items-center">
+          class="from-[#2c2035] to-dark-800 p-3 border-b border-gray-200 flex justify-between items-center">
           <div class="flex items-center gap-2 text-purple-300">
             <span class="text-base">[]</span>
             <h3 class="m-0 text-base">智能识别告警</h3>

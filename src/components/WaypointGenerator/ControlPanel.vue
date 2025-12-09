@@ -53,6 +53,14 @@
         <a-tab-pane key="config" tab="任务配置">
           <MissionConfig v-model="localMissionConfig" />
         </a-tab-pane>
+        <a-tab-pane key="polygon" tab="面状航线" v-if="isPolygonMode">
+          <PolygonRouteConfig 
+            v-model="localMissionConfig"
+            :waypoints="waypoints"
+            :route-stats="routeStats"
+            @generate="$emit('generate-polygon')"
+          />
+        </a-tab-pane>
         <a-tab-pane key="waypoints" tab="航点列表">
           <WaypointList 
             :waypoints="waypoints" 
@@ -69,9 +77,10 @@
 
 <script setup>
 import { computed, ref } from 'vue';
-import MissionConfig from './MissionConfig.vue';
-import WaypointList from './WaypointList.vue';
 import { formatTime } from '../../utils/geoUtils';
+import MissionConfig from './MissionConfig.vue';
+import PolygonRouteConfig from './PolygonRouteConfig.vue';
+import WaypointList from './WaypointList.vue';
 
 const props = defineProps({
   missionConfig: {
@@ -85,6 +94,10 @@ const props = defineProps({
   missionStats: {
     type: Object,
     default: () => ({ area: 0, distance: 0, time: 0 })
+  },
+  routeStats: {
+    type: Object,
+    default: null
   }
 });
 
@@ -95,6 +108,7 @@ const emit = defineEmits([
   'clear-waypoints', 
   'reverse-waypoints',
   'generate',
+  'generate-polygon',
   'import-kmz',
   'create-mission',
   'back',
@@ -102,6 +116,11 @@ const emit = defineEmits([
 ]);
 
 const activeTab = ref('config');
+
+// 判断是否为面状模式
+const isPolygonMode = computed(() => {
+  return props.missionConfig.routeType === 'mapping' || props.missionConfig.routeType === 'polygon';
+});
 
 const localMissionConfig = computed({
   get: () => props.missionConfig,

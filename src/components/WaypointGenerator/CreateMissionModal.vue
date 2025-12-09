@@ -53,7 +53,11 @@
         <h3 class="section-title mb-2">测绘航线</h3>
         <a-row :gutter="12">
           <a-col :span="6">
-            <div class="route-card route-card-disabled">
+            <div 
+              class="route-card"
+              :class="{ 'route-card-active': form.routeType === 'mapping' }"
+              @click="form.routeType = 'mapping'"
+            >
               <div class="route-icon mb-2">
                 <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5">
                   <path d="M4 4h16v16H4z" stroke-dasharray="2 2" />
@@ -167,7 +171,7 @@
 </template>
 
 <script setup>
-import { reactive, computed, watch } from 'vue';
+import { computed, reactive, watch } from 'vue';
 
 const props = defineProps({
   visible: {
@@ -239,7 +243,8 @@ const form = reactive({
 watch(() => form.routeType, (newType) => {
   const names = {
     waypoint: '新建航点航线',
-    patrol: '新建巡逻航线'
+    patrol: '新建巡逻航线',
+    mapping: '新建面状航线'
   };
   form.missionName = names[newType] || '新建航线';
 });

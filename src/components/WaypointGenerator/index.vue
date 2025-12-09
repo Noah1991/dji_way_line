@@ -10,9 +10,11 @@
 
         <!-- View 2: Mission Editor (ControlPanel) -->
         <ControlPanel v-else :missionConfig="missionConfig" :waypoints="waypoints" :mission-stats="missionStats"
+          :route-stats="routeStats"
           @update:missionConfig="onMissionConfigUpdate" @update:waypoints="waypoints = $event"
           @remove-waypoint="removeWaypoint" @clear-waypoints="clearWaypoints" @reverse-waypoints="reverseWaypoints"
-          @generate="handleGenerateKMZ" @import-kmz="handleImportKMZ" @create-mission="showCreateModal = true"
+          @generate="handleGenerateKMZ" @generate-polygon="handleGeneratePolygonRoute"
+          @import-kmz="handleImportKMZ" @create-mission="showCreateModal = true"
           @back="currentView = 'library'" @save="saveCurrentMission" class="h-full" />
       </div>
 
@@ -34,6 +36,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { getPolygonArea } from '../../utils/geoUtils';
 import { generateKMZ } from '../../utils/kmzGenerator';
 import { parseKMZ } from '../../utils/kmzParser';
+import { calculateRouteStats, CAMERA_PRESETS, generatePolygonRoute } from '../../utils/polygonRouteGenerator';
 import { generateScanPath } from '../../utils/routePlanner';
 import ControlPanel from './ControlPanel.vue';
 import CreateMissionModal from './CreateMissionModal.vue';
@@ -52,9 +55,14 @@ const defaultMissionConfig = {
   aircraftModel: 'm30t',
   droneEnumValue: 67,
   payloadEnumValue: 53,
+  flyToWaylineMode: 'safely',
+  finishAction: 'goHome',
+  exitOnRCLost: 'executeLostAction',
+  executeRCLostAction: 'goBack',
   takeOffSecurityHeight: 20,
   globalSpeed: 5,
   globalHeight: 50,
+  globalTransitionalSpeed: 5,
   globalYawMode: 'path',
   isClosedLoop: false,
   isReverse: false,
@@ -76,6 +84,7 @@ const defaultMissionConfig = {
 
 const missionConfig = ref({ ...defaultMissionConfig });
 const scanPath = ref([]);
+const routeStats = ref(null);
 
 onMounted(() => {
   const saved = localStorage.getItem('missions');
@@ -185,31 +194,142 @@ const saveCurrentMission = () => {
 
   missions.value.push(mission);
   saveMissionsToStorage();
-  alert('保存成功');
 };
 
-// Watch for scan path generation
-watch([() => missionConfig.value.scanSetting, waypoints], () => {
-  if (missionConfig.value.routeType === 'mapping' || missionConfig.value.routeType === 'patrol') {
-    if (waypoints.value.length >= 3) {
-      const height = missionConfig.value.globalHeight;
-      const overlap = missionConfig.value.scanSetting?.overlap || 20;
-      // Simple spacing calculation: assume 20m base spacing adjusted by overlap
-      const spacing = 20 * (1 - overlap / 100);
-
-      scanPath.value = generateScanPath(
-        waypoints.value,
-        spacing,
-        missionConfig.value.scanSetting?.angle || 0,
-        missionConfig.value.scanSetting?.margin || 0
-      );
-    } else {
-      scanPath.value = [];
+// 核心生成函数（静默生成，不显示提示）
+const generatePolygonRouteInternal = (showAlert = false) => {
+  if (waypoints.value.length < 3) {
+    if (showAlert) {
+      alert('至少需要 3 个边界点才能生成面状航线');
     }
-  } else {
     scanPath.value = [];
+    routeStats.value = null;
+    return false;
   }
-}, { deep: true });
+  
+  try {
+    const polygonConfig = missionConfig.value.polygonRoute || {};
+    
+    // 准备生成选项
+    const options = {
+      height: missionConfig.value.globalHeight || 50,
+      speed: missionConfig.value.globalSpeed || 5,
+      angle: polygonConfig.angle || 0,
+      margin: polygonConfig.margin || 0,
+      optimizePath: polygonConfig.optimizePath !== false
+    };
+    
+    // 判断间距计算方式
+    if (polygonConfig.spacingMode === 'auto') {
+      // 自动模式：使用相机参数
+      options.useCamera = true;
+      options.overlapRate = polygonConfig.overlapLateral || 0.7;
+      
+      if (polygonConfig.cameraPreset === 'custom') {
+        options.camera = polygonConfig.customCamera;
+      } else if (CAMERA_PRESETS[polygonConfig.cameraPreset]) {
+        options.camera = CAMERA_PRESETS[polygonConfig.cameraPreset];
+      } else {
+        // 默认相机
+        options.camera = CAMERA_PRESETS.m30t;
+      }
+    } else {
+      // 手动模式：使用固定间距
+      options.spacing = polygonConfig.spacing || 30;
+    }
+    
+    console.log('生成选项:', options);
+    
+    // 生成航线
+    const generatedPath = generatePolygonRoute(waypoints.value, options);
+    
+    if (generatedPath.length === 0) {
+      if (showAlert) {
+        alert('生成失败：未能生成有效航线，请检查参数设置');
+      }
+      scanPath.value = [];
+      routeStats.value = null;
+      return false;
+    }
+    
+    scanPath.value = generatedPath;
+    routeStats.value = calculateRouteStats(generatedPath);
+    
+    console.log('生成完成 |', {
+      航点数: generatedPath.length,
+      航程: routeStats.value.totalDistance + 'm',
+      时间: Math.ceil(routeStats.value.flightTime / 60) + '分钟'
+    });
+    
+    if (showAlert) {
+      alert(`航线生成成功！\n航点数: ${generatedPath.length}\n航程: ${routeStats.value.totalDistance}m\n预计时间: ${Math.ceil(routeStats.value.flightTime / 60)}分钟`);
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('生成面状航线失败:', error);
+    if (showAlert) {
+      alert('生成失败: ' + error.message);
+    }
+    scanPath.value = [];
+    routeStats.value = null;
+    return false;
+  }
+};
+
+// 手动生成（带提示）
+const handleGeneratePolygonRoute = () => {
+  generatePolygonRouteInternal(true);
+};
+
+// 防抖定时器
+let autoGenerateTimer = null;
+
+// 自动生成航线（实时响应，带防抖）
+watch(
+  [
+    waypoints,
+    () => missionConfig.value.routeType,
+    () => missionConfig.value.globalHeight,
+    () => missionConfig.value.globalSpeed,
+    () => missionConfig.value.polygonRoute,
+    () => missionConfig.value.scanSetting
+  ],
+  () => {
+    // 清除之前的定时器
+    if (autoGenerateTimer) {
+      clearTimeout(autoGenerateTimer);
+    }
+    
+    if (missionConfig.value.routeType === 'mapping') {
+      // 面状航线：自动生成（300ms 防抖）
+      autoGenerateTimer = setTimeout(() => {
+        generatePolygonRouteInternal(false);
+      }, 300);
+    } else if (missionConfig.value.routeType === 'patrol') {
+      // 巡逻模式：使用旧的简单扫描（即时生成）
+      if (waypoints.value.length >= 3) {
+        const height = missionConfig.value.globalHeight;
+        const overlap = missionConfig.value.scanSetting?.overlap || 20;
+        const spacing = 20 * (1 - overlap / 100);
+
+        scanPath.value = generateScanPath(
+          waypoints.value,
+          spacing,
+          missionConfig.value.scanSetting?.angle || 0,
+          missionConfig.value.scanSetting?.margin || 0
+        );
+      } else {
+        scanPath.value = [];
+      }
+    } else {
+      // 其他模式：清空航线
+      scanPath.value = [];
+      routeStats.value = null;
+    }
+  },
+  { deep: true }
+);
 
 const missionStats = computed(() => {
   const points = (missionConfig.value.routeType === 'mapping' || missionConfig.value.routeType === 'patrol')

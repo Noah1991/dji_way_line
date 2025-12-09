@@ -1,5 +1,5 @@
 <script setup>
-import WaypointGenerator from './components/WaypointGenerator/index.vue'
+import WaypointGenerator from './components/WaypointGenerator/index.vue';
 </script>
 
 <template>
